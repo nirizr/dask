@@ -32,7 +32,7 @@ except:
 from ..base import Base, normalize_token, tokenize
 from ..compatibility import apply, unicode, urlopen
 from ..context import _globals
-from ..core import list2, quote, istask, get_dependencies, reverse_dict
+from ..core import quote, istask, get_dependencies, reverse_dict
 from ..multiprocessing import get as mpget
 from ..optimize import fuse, cull, inline
 from ..utils import (infer_compression, open, system_encoding,
@@ -988,7 +988,7 @@ class Bag(Base):
                 columns = list(range(len(head)))
         name = 'to_dataframe-' + tokenize(self, columns)
         DataFrame = partial(pd.DataFrame, columns=columns)
-        dsk = dict(((name, i), (DataFrame, (list2, (self.name, i))))
+        dsk = dict(((name, i), (DataFrame, (list, (self.name, i))))
                    for i in range(self.npartitions))
 
         divisions = [None] * (self.npartitions + 1)

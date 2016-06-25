@@ -441,10 +441,6 @@ def isdag(d, keys):
     return not getcycle(d, keys)
 
 
-def list2(L):
-    return list(L)
-
-
 def quote(x):
     """ Ensure that this value remains this value in a dask graph
 
