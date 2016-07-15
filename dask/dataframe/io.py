@@ -526,6 +526,20 @@ The combination is ambiguous because it could be interpreted as the starting
 and stopping index per file, or starting and stopping index of the global
 dataset."""
 
+def hdfstore_groups_itermock(self):
+    """return an iterator of all the top-level nodes (that are not themselves a
+    pandas storage object). Yields tuples of (name, node)
+    """
+    from pandas.io.pytables import _tables
+    _table_mod = _tables()
+    #self._check_if_open()
+    for g in self._handle.walk_nodes():
+        if (getattr(g._v_attrs, 'pandas_type', None) or
+            getattr(g, 'table', None) or
+            (isinstance(g, _table_mod.table.Table) and
+             g._v_name != 'table')):
+            yield g._v_pathname, g
+
 def _read_single_hdf(path, key, start=0, stop=None, columns=None,
                      chunksize=int(1e6), lock=None):
     """
@@ -540,10 +554,15 @@ def _read_single_hdf(path, key, start=0, stop=None, columns=None,
         key.
         """
         with pd.HDFStore(path) as hdf:
-            keys = [k for k in hdf.keys() if fnmatch(k, key)]
             stops = []
-            for k in keys:
-                storer = hdf.get_storer(k)
+            keys = []
+            for k, g in hdfstore_groups_itermock(hdf):
+                if not fnmatch(k, key):
+                    continue
+                keys.append(k)
+                storer = hdf._create_storer(g)
+                storer.infer_axes()
+
                 if storer.format_type != 'table':
                     raise TypeError(dont_use_fixed_error_message)
                 if stop is None:
