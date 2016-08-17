@@ -553,6 +553,28 @@ and stopping index per file, or starting and stopping index of the global
 dataset."""
 
 
+def find_all_datapaths(paths, key, chunksize, sorted_index, mode):
+    for path in paths:
+        with pd.HDFStore(path, mode=mode) as hdf:
+            # TODO: optimize fixed part of key isntead of listing all keys
+            keys = [k for k in hdf.keys() if fnmatch(k, key)]
+            for k in keys:
+                storer.get_storer(k)
+                if storer.format_type not in ('fixed', 'table'):
+                    raise TypeError("read_hdf only handles pandas hdf format. "
+                                    "To read raw hdf files use dask.array.")
+
+                if sorted_index:
+                    dstart = storer.read_column('index', start=0, stop=1)[0]
+                    dend = storer.read_column('index', start=storer.nrows-1,
+                                                       stop=storer.nrows)[0]
+                    yield path, key, {'divisions': [dstart, dend]}
+                elif chunksize:
+                    for i, s in range(0, storer.nrows, chunksize):
+                        yield path, key, {'start': s, 'end': s + chunksize}
+
+
+
 def _read_single_hdf(path, key, start=0, stop=None, columns=None,
                      chunksize=int(1e6), sorted_index=False, lock=None, mode=None):
     """
@@ -645,8 +667,8 @@ def _pd_read_hdf(path, key, lock, kwargs):
 
 
 @wraps(pd.read_hdf)
-def read_hdf(pattern, key, start=0, stop=None, columns=None,
-             chunksize=1000000, sorted_index=False, lock=True, mode=None):
+def read_hdf(pattern, key, columns=None, chunksize=1000000,
+             sorted_index=False, lock=True, mode=None):
     """
     Read hdf files into a dask dataframe. Like pandas.read_hdf, except it we
     can read multiple files, and read multiple keys from the same file by using
@@ -687,19 +709,27 @@ def read_hdf(pattern, key, start=0, stop=None, columns=None,
 
     key = key if key.startswith('/') else '/' + key
     paths = sorted(glob(pattern))
-    if (start != 0 or stop is not None) and len(paths) > 1:
-        raise NotImplementedError(read_hdf_error_msg)
+    if not paths:
+        raise ValueError("path pattern resulted in no files to process, "
+                         "please validate pattern is correct and files exist.")
     if chunksize <= 0:
         raise ValueError("Chunksize must be a positive integer")
     if (start != 0 or stop is not None) and sorted_index:
         raise ValueError("When assuming pre-partitioned data, data must be "
                          "read in its entirety using the same chunksizes")
-    from .multi import concat
-    return concat([_read_single_hdf(path, key, start=start, stop=stop,
-                                    columns=columns, chunksize=chunksize,
-                                    sorted_index=sorted_index,
-                                    lock=lock, mode=mode)
-                   for path in paths])
+
+    datapaths = find_all_datapaths(paths, key, chunksize, sorted_inde, mode)
+    datapaths = sort_datapaths(datapaths)
+    dfs = [read_single_hdf(_path, _key, **kwargs.copy().update(_kwargs)) for _path, _key, _kwargs in datapaths]
+
+    if not dfs:
+        raise ValueError("Found no datasets to read in provided files, "
+                         "please make sure provided files contain data.")
+    elif len(dfs) == 1:
+        return dfs[0]
+    else:
+        from .multi import concat
+        return concat(dfs)
 
 
 def to_castra(df, fn=None, categories=None, sorted_index_column=None,
