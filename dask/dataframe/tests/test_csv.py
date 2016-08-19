@@ -15,7 +15,7 @@ from dask.dataframe.csv import (read_csv_from_bytes, bytes_read_csv, read_csv,
                                 auto_blocksize)
 from dask.dataframe.utils import eq
 from dask.bytes.core import read_bytes
-from dask.utils import filetexts, filetext
+from dask.utils import filetexts, filetext, tmpdir
 
 compute = partial(compute, get=get_sync)
 
@@ -245,3 +245,19 @@ def test_auto_blocksize_csv(monkeypatch):
         read_csv('2014-01-01.csv')
         assert mock_read_bytes.called
         assert mock_read_bytes.call_args[1]['blocksize'] == expected_block_size
+
+
+def test_read_write_multiple():
+    df16 = pd.DataFrame({'x': ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h',
+                               'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p'],
+                         'y': [1, 2, 3, 4, 5, 6, 7, 8, 9,
+                               10, 11, 12, 13, 14, 15, 16]},
+                         index=[1., 2., 3., 4., 5., 6., 7., 8., 9.,
+                                10., 11., 12., 13., 14., 15., 16.])
+    a = dd.from_pandas(df16, 16)
+
+    with tmpdir() as tdir:
+        a.to_csv(tdir)
+        out = read_csv(tdir+"/*").set_index('Unnamed: 0').compute()
+        out.index.name = None
+        eq(out, df16)
